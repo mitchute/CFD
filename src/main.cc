@@ -1,13 +1,14 @@
 // C++ headers
 #include <iostream>
 #include <fstream>
+#include <algorithm>
 
 // My headers
 #include "header.hh"
 
 // Number of points in N x N domain
-int const Nx = 20;
-int const Ny = 20;
+int const Nx = 80;
+int const Ny = 80;
 
 double const L = 1;
 double const H = 1;
@@ -19,28 +20,23 @@ double const alpha = 1;
 
 double const errorTolerance = 0.0001;
 
+int counter = 0;
+double maxError = 0.0;
+
 // Create cell array
 cell cells[Nx+1][Ny+1];
 
-int main()
-{
-
+int main() { // Start of program
 	 explicitMethod();
-
 	 implicitMethod();
-
 }
 
-void initDomain() {
+void initDomain() { // Initialize domain correctly for each run.
 
 	for ( int j = 0; j <= Ny; ++j ) {
-
 		double y = double(j) * dy;
-
 		for ( int i = 0; i <= Nx; ++i ) {
-
 			double x = double(i) * dx;
-
 			cells[i][j].x_index = i;
 			cells[i][j].y_index = j;
 			cells[i][j].x_loc = x;
@@ -48,25 +44,23 @@ void initDomain() {
 
 			if ( i == 0 || i == Nx || j == 0 || j == Ny ) { // All edges set to x + y = u(x,y)
 				cells[i][j].temp = x + y;
-				cells[i][j].temp_prev_iter = x + y;
+				cells[i][j].temp_iter = x + y;
 				cells[i][j].temp_prev_ts = x + y;
 			} else { // Everywhere else initialized to 0.0
 				cells[i][j].temp = 0.0;
-				cells[i][j].temp_prev_iter = 0.0;
+				cells[i][j].temp_iter = 100; // initialized big
 				cells[i][j].temp_prev_ts = 0.0;
 				//cells[i][j].temp = x + y; // for testing the contour plot only
 			}
 		}
 	}
-
 }
 
-void reportResults( std::string const fileName ) {
+void reportResults( std::string const fileName ) { // Report results to file
 
-	std::ofstream file( fileName, std::ofstream::out );
+	std::ofstream file( fileName + ".csv", std::ofstream::out );
 
 	for ( int j = 0; j <= Ny; ++j ) {
-
 		if ( j == 0 ) { // print x locations
 			file << ","; // pad space to get correct alignment
 			for ( int i = 0; i <= Nx; ++i ) {
@@ -79,7 +73,6 @@ void reportResults( std::string const fileName ) {
 		}
 
 		for ( int i = 0; i <= Nx; ++i ) {
-
 			if ( i == 0 ) { // print y locations
 				file << cells[i][j].y_loc << ",";
 			}
@@ -94,50 +87,50 @@ void reportResults( std::string const fileName ) {
 	}
 
 	file.close();
-
 }
 
-void explicitMethod() {
+void reportStatistics( std::string const fileName ) {	// Report statistics from run
 
+	calcMaxError();
+
+	std::ofstream file( fileName + ".txt", std::ofstream::out );
+
+	file << "Num. Iterations: " << counter << std::endl;
+	file << "Abs. Error: " << maxError << std::endl;
+
+	file.close();
+}
+
+void explicitMethod() { // Simulate explicit method
 	initDomain();
-
 	simulateExplicit();
-
-	reportResults( "explicit.csv" );
-
+	reportResults( "explicit" );
+	reportStatistics( "explicit" );
 }
 
-void implicitMethod() {
-
+void implicitMethod() { // Simulate implicit method
 	initDomain();
-
 	simulateImplicit();
-
-	reportResults( "implicit.csv" );
-
+	reportResults( "implicit" );
+	reportStatistics( "implicit" );
 }
 
 void simulateExplicit() {
 
 	bool converged = false;
-
 	int counter = 0;
+
 	while ( !converged )
 	{
-		++ counter;
 		fieldUpdateExplicit();
-
 		converged = isConverged_ts();
-
-		shiftTempsForNextTimeStep();
-
+		shiftTempsForNewTimeStep();
 	}
-
 }
 
 void fieldUpdateExplicit() {
 
-	double dt = std::pow( L / Nx, 2.0 ) * 0.25 * alpha;
+	double dt = std::pow( L / Nx, 2.0 ) * 0.25 / alpha;
 
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
@@ -145,14 +138,13 @@ void fieldUpdateExplicit() {
 											+ ( cells[i][j+1].temp_prev_ts - 2 * cells[i][j].temp_prev_ts + cells[i][j-1].temp_prev_ts ) / std::pow( dy, 2.0 ) ) + cells[i][j].temp_prev_ts;
 		}
 	}
-
 }
 
 bool isConverged_ts() {
 
 	bool converged = true;
 
-	for ( int j = 1; j < Ny; ++j ) {
+	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
 			auto & thisCell( cells[i][j]);
 			if ( abs( thisCell.temp - thisCell.temp_prev_ts ) > errorTolerance ) {
@@ -163,17 +155,16 @@ bool isConverged_ts() {
 	}
 
 	return converged;
-
 }
 
 bool isConverged_iter() {
 
 	bool converged = true;
 
-	for ( int j = 1; j < Ny; ++j ) {
+	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
 			auto & thisCell( cells[i][j]);
-			if ( abs( thisCell.temp - thisCell.temp_prev_iter ) > errorTolerance ) {
+			if ( abs( thisCell.temp - thisCell.temp_iter ) > errorTolerance ) {
 				converged = false;
 				return converged;
 			}
@@ -181,46 +172,55 @@ bool isConverged_iter() {
 	}
 
 	return converged;
-
 }
 
-void shiftTempsForNextTimeStep() {
-
+void shiftTempsForNewTimeStep() {
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
 			cells[i][j].temp_prev_ts = cells[i][j].temp;
 		}
 	}
-
 }
 
-void shiftTempsForNextIteration() {
+void shiftTempsForNewIteration() {
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp_prev_iter = cells[i][j].temp;
+			cells[i][j].temp = cells[i][j].temp_iter;
 		}
 	}
 }
 
 void simulateImplicit() {
 
-	bool finalConverged = false;
+	bool isConverged = false;
 
-	while ( !finalConverged ) {
-
-		bool iterationConverged = false;
-
-		while( !iterationConverged ) {
-			fieldUpdateImplicit();
-
-			iterationConverged = isConverged_iter();
-
-			shiftTempsForNextIteration();
-		}
+	while( !isConverged ) { // Iteration loop
+		++counter;
+		fieldUpdateImplicit();
+		//shiftTempsForNewIteration();
+		isConverged = isConverged_ts();
+		shiftTempsForNewTimeStep();
 	}
-
 }
 
 void fieldUpdateImplicit() {
 
+	double dt = std::pow( L / Nx, 2.0 ) * 0.25 / alpha;
+
+	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
+		for ( int i = 1; i < Nx; ++i ) {
+			cells[i][j].temp = alpha * dt * ( ( cells[i+1][j].temp - 2 * cells[i][j].temp + cells[i-1][j].temp ) / std::pow( dx, 2.0 ) + \
+												( cells[i][j+1].temp - 2 * cells[i][j].temp + cells[i][j-1].temp ) / std::pow( dy, 2.0 ) ) + cells[i][j].temp_prev_ts;
+		}
+	}
+}
+
+void calcMaxError() {
+
+	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
+		for ( int i = 1; i < Nx; ++i ) {
+			auto & thisCell( cells[i][j] );
+			maxError = std::max( maxError, std::abs( thisCell.temp - ( thisCell.x_loc + thisCell.y_loc ) ) );
+		}
+	}
 }

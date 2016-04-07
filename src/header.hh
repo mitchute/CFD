@@ -3,7 +3,7 @@
 
 // Classes
 
-class cell
+class cell // cell class
 {
 public:
 	double x_loc;
@@ -11,18 +11,20 @@ public:
 	int x_index;
 	int y_index;
 
-	double temp = 0.0;
-	double temp_prev_iter = 0.0;
-	double temp_prev_ts = 0.0;
+	double temp;
+	double temp_iter;
+	double temp_prev_ts;
 };
 
 // General Functions
 void initDomain();
 void reportResults( std::string const fileName );
-void shiftTempsForNextTimeStep();
-void shiftTempsForNextIteration();
+void reportStatistics( std::string const fileName );
+void shiftTempsForNewTimeStep();
+void shiftTempsForNewIteration();
 bool isConverged_ts();
 bool isConverged_iter();
+void calcMaxError();
 
 // Explicit Functions
 void explicitMethod();
