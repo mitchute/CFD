@@ -24,16 +24,16 @@ void shiftTempsForNewTimeStep();
 void shiftTempsForNewIteration();
 bool isConverged_ts();
 bool isConverged_iter();
-void calcMaxError();
+double calcLNorm( double normPower );
 
 // Explicit Functions
 void explicitMethod();
 void simulateExplicit();
-void fieldUpdateExplicit();
+void fieldUpdateExplicit( double dt );
 
 // Implicit Functions
 void implicitMethod();
 void simulateImplicit();
-void fieldUpdateImplicit();
+void fieldUpdateImplicit( double dt );
 
 #endif

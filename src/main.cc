@@ -1,14 +1,17 @@
 // C++ headers
-#include <iostream>
-#include <fstream>
 #include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <math.h>
+#include <stdio.h>
+
 
 // My headers
 #include "header.hh"
 
 // Number of points in N x N domain
-int const Nx = 80;
-int const Ny = 80;
+int const Nx = 100;
+int const Ny = 100;
 
 double const L = 1;
 double const H = 1;
@@ -20,13 +23,16 @@ double const alpha = 1;
 
 double const errorTolerance = 0.0001;
 
-int counter = 0;
-double maxError = 0.0;
+double LNorm = 0.0;
 
 // Create cell array
 cell cells[Nx+1][Ny+1];
 
 int main() { // Start of program
+    /**
+    Test a comment here.
+    This is where the program starts
+    */
 	 explicitMethod();
 	 implicitMethod();
 }
@@ -91,12 +97,13 @@ void reportResults( std::string const fileName ) { // Report results to file
 
 void reportStatistics( std::string const fileName ) {	// Report statistics from run
 
-	calcMaxError();
+	double l1 = calcLNorm( 1.0 );
+	double l2 = calcLNorm( 2.0 );
 
 	std::ofstream file( fileName + ".txt", std::ofstream::out );
 
-	file << "Num. Iterations: " << counter << std::endl;
-	file << "Abs. Error: " << maxError << std::endl;
+	file << "L1 Norm: " << l1 << std::endl;
+	file << "L2 Norm: " << l2 << std::endl;
 
 	file.close();
 }
@@ -117,21 +124,21 @@ void implicitMethod() { // Simulate implicit method
 
 void simulateExplicit() {
 
-	bool converged = false;
 	int counter = 0;
 
-	while ( !converged )
+	double dt = 0.00001;
+
+	for ( double t = 0; t < 1; t = t + dt )
 	{
-		fieldUpdateExplicit();
-		converged = isConverged_ts();
+		fieldUpdateExplicit( dt );
 		shiftTempsForNewTimeStep();
 	}
 }
 
-void fieldUpdateExplicit() {
-
-	double dt = std::pow( L / Nx, 2.0 ) * 0.25 / alpha;
-
+void fieldUpdateExplicit(
+	double dt
+)
+{
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
 			cells[i][j].temp = alpha * dt * ( ( cells[i+1][j].temp_prev_ts - 2 * cells[i][j].temp_prev_ts + cells[i-1][j].temp_prev_ts ) / std::pow( dx, 2.0 ) \
@@ -185,28 +192,34 @@ void shiftTempsForNewTimeStep() {
 void shiftTempsForNewIteration() {
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp = cells[i][j].temp_iter;
+			cells[i][j].temp_iter = cells[i][j].temp;
 		}
 	}
 }
 
 void simulateImplicit() {
 
-	bool isConverged = false;
+	double dt = 0.00001;
 
-	while( !isConverged ) { // Iteration loop
-		++counter;
-		fieldUpdateImplicit();
-		//shiftTempsForNewIteration();
-		isConverged = isConverged_ts();
+	for ( double t = 0; t < 1; t = t + dt ) {
+
+		bool isConverged = false;
+
+		while( !isConverged ) { // Iteration loop
+			shiftTempsForNewIteration();
+			fieldUpdateImplicit( dt );
+			isConverged = isConverged_iter();
+		}
+
 		shiftTempsForNewTimeStep();
+
 	}
 }
 
-void fieldUpdateImplicit() {
-
-	double dt = std::pow( L / Nx, 2.0 ) * 0.25 / alpha;
-
+void fieldUpdateImplicit(
+	double dt
+)
+{
 	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
 		for ( int i = 1; i < Nx; ++i ) {
 			cells[i][j].temp = alpha * dt * ( ( cells[i+1][j].temp - 2 * cells[i][j].temp + cells[i-1][j].temp ) / std::pow( dx, 2.0 ) + \
@@ -215,12 +228,19 @@ void fieldUpdateImplicit() {
 	}
 }
 
-void calcMaxError() {
+double calcLNorm(
+	double normPower
+)
+{
+	double sumError = 0.0;
 
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
+	for ( int j = 1; j < Ny; ++j ) {
 		for ( int i = 1; i < Nx; ++i ) {
-			auto & thisCell( cells[i][j] );
-			maxError = std::max( maxError, std::abs( thisCell.temp - ( thisCell.x_loc + thisCell.y_loc ) ) );
+			auto & c( cells[i][j] );
+			double err = (c.temp - ( c.x_loc + c.y_loc ) );
+			sumError += std::abs( std::pow( err, normPower ) );
 		}
 	}
+
+	return std::pow( sumError, 1 / normPower );
 }
