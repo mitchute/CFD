@@ -18,22 +18,24 @@ public:
 
 // General Functions
 void initDomain();
-void reportResults( std::string const fileName );
-void reportStatistics( std::string const fileName );
+void reportResults( std::string const solutionScheme, double simTime );
+void reportStatistics( std::string const solutionScheme, double simTime );
 void shiftTempsForNewTimeStep();
 void shiftTempsForNewIteration();
 bool isConverged_ts();
 bool isConverged_iter();
-double calcLNorm( double normPower );
+double calcLNorm_exact( double normPower );
+double calcLNorm_iter( double normPower );
 
 // Explicit Functions
 void explicitMethod();
-void simulateExplicit();
+double simulateExplicit();
 void fieldUpdateExplicit( double dt );
 
 // Implicit Functions
 void implicitMethod();
-void simulateImplicit();
+double simulateImplicit();
+void performTimeStepImplicit( double dt );
 void fieldUpdateImplicit( double dt );
 
 #endif
