@@ -4,390 +4,400 @@
 #include <iomanip>
 #include <iostream>
 #include <math.h>
+#include <memory>
 #include <stdio.h>
 #include <sstream>
 #include <string>
 #include <time.h>
+#include <vector>
 
 // My headers
 #include "header.hh"
 
-// Number of points in N x N domain
-int const Nx = 100;
-int const Ny = 100;
-
-double const L = 1;
-double const H = 1;
-
-double const dx = L / Nx;
-double const dy = H / Ny;
-
-double const alpha = 1;
-double const gamma = 1.5;
-
+double const u_lid = 1;
 double const errorTolerance = 0.0001;
 
-double LNorm = 0.0;
-
-double t1= 0.05;
-double t2 = 0.1;
-double t3 = 0.15;
-double t4 = 0.2;
-
-clock_t t_init;
-double t_final = 2.0;
-
-// Create cell array
-cell cells[Nx+1][Ny+1];
+double const t1 = 0.2;
+double const t2 = 0.5;
+double const t3 = 1.0;
+double const t4 = 3.0;
 
 int main() { // Start of program
     /**
-    Test a comment here.
+    Docs auto generated with DOxygen
     This is where the program starts
     */
-	//explicitMethod();
-	implicitMethod();
+
+	// Add runs here
+	// BurgersClass( Pe, Re, gamma, numScheme, advDifferencingScheme )
+	std::shared_ptr< BurgersClass > thisRun( new BurgersClass( 1.0, 40.0, 0.1, "Explicit", "FOU" ) );
+	thisRun->initAndSim();
 
 }
 
-void initDomain() { // Initialize domain correctly for each run.
+void BurgersClass::initAndSim()
+{
+	initDomain();
+	simulate();
+	reportResults();
+}
 
-	t_init = clock();
+void BurgersClass::initDomain() // Initialize domain correctly for each run.
+{
+	// Initial time
+	t_start = clock();
 
+	// Set domain dimensions
+	L = 2.0;
+	H = 1.0;
+
+	// Set mesh spacing
+	dx = Pe * L / Re;
+	dy = dx;
+
+	// Set timestep
+	dt = ( gamma * std::pow( Pe, 2.0 ) * L ) / ( u_lid * Re );
+
+	// Set viscosity
+	viscosity = u_lid * L / Re;
+
+	// Calculate number of cells
+	Nx = ceil( L / dx );
+	Ny = Nx / 2;
+
+	// Initialize all cells
 	for ( int j = 0; j <= Ny; ++j ) {
-		double y = double(j) * dy;
-		for ( int i = 0; i <= Nx; ++i ) {
-			double x = double(i) * dx;
-			cells[i][j].x_index = i;
-			cells[i][j].y_index = j;
-			cells[i][j].x_loc = x;
-			cells[i][j].y_loc = y;
 
-			if ( i == 0 || i == Nx || j == 0 || j == Ny ) { // All edges set to x + y = u(x,y)
-				cells[i][j].temp = x + y;
-				cells[i][j].temp_iter = x + y;
-				cells[i][j].temp_prev_ts = x + y;
+		double y = double(j) * dy;
+
+		for ( int i = 0; i <= Nx; ++i ) {
+
+			std::shared_ptr< CellClass > thisCell( new CellClass );
+
+			double x = double( i ) * dx;
+
+			thisCell->x_index = i;
+			thisCell->y_index = j;
+			thisCell->x_loc = x;
+			thisCell->y_loc = y;
+
+			if ( j == Ny ) { // Top plate
+				double initVal = u_lid;
+				// u-velocity component
+				thisCell->u = initVal;
+				thisCell->u_iter = initVal;
+				thisCell->u_prev_ts = initVal;
+				// v-velocity component
+				thisCell->v = 0.0;
+				thisCell->v_iter = 0.0;
+				thisCell->v_prev_ts = 0.0;
 			} else { // Everywhere else initialized to 0.0
-				cells[i][j].temp = 0.0;
-				cells[i][j].temp_iter = 100; // initialized big
-				cells[i][j].temp_prev_ts = 0.0;
-				//cells[i][j].temp = x + y; // for testing the contour plot only
+				thisCell->u = 0.0;
+				thisCell->u_iter = 0.0; // initialized big
+				thisCell->u_prev_ts = 0.0;
+			}
+
+			// Store cells in vector
+			cellVect.push_back( thisCell );
+
+		}
+	}
+
+	// Store all cell neighbors on the cell class for future reference
+	for ( int j = 1; j < Ny; ++j ) {
+		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j) );
+
+			thisCell->bottomCell = getCell( i, j - 1 );
+			thisCell->topCell = getCell( i, j + 1 );
+
+			if ( i == 0 ) { // Left side periodic boundary condition
+				thisCell->leftCell = getCell( Nx, j );
+				thisCell->rightCell = getCell( i + 1, j );
+			} else if ( i == Nx ) { // Right side periodic boundary condition
+				thisCell->leftCell = getCell( i - 1, j );
+				thisCell->rightCell = getCell( 0 , j );
+			} else { // All other cells
+				thisCell->leftCell = getCell( i - 1, j );
+				thisCell->rightCell = getCell( i + 1, j );
 			}
 		}
 	}
 }
 
-void reportResults(
-	std::string const solutionScheme,
-	double simTime
-)
+
+void BurgersClass::reportResults()
 { // Report results to file
 
-	// Convert simTime to String
-	std::stringstream simTime_stream;
-	simTime_stream << std::fixed << std::setprecision(2) << simTime;
-	std::string simTime_str = simTime_stream.str();
+	// Convert Pe to string
+	std::stringstream Pe_stream;
+	Pe_stream << std::fixed << std::setprecision(2) << Pe;
+	std::string Pe_str = Pe_stream.str();
 
-	// Convert gamma to String
+	// Convert Re to string
+	std::stringstream Re_stream;
+	Re_stream << std::fixed << std::setprecision(2) << Re;
+	std::string Re_str = Re_stream.str();
+
+	// Convert gamma to string
 	std::stringstream gamma_stream;
 	gamma_stream << std::fixed << std::setprecision(2) << gamma;
 	std::string gamma_str = gamma_stream.str();
 
-	std::ofstream file( solutionScheme + "-" + gamma_str + "-" + simTime_str + "-" + std::to_string( Nx ) + ".csv", std::ofstream::out );
+	// Convert simTime to string
+	std::stringstream simTime_stream;
+	simTime_stream << std::fixed << std::setprecision(2) << t_curr;
+	std::string simTime_str = simTime_stream.str();
+
+	std::ofstream file( numScheme + "-" + advDifferencingScheme + "-" + Pe_str + "-" + Re_str + "-" + gamma_str + "-" + simTime_str + ".csv", std::ofstream::out );
 
 	for ( int j = 0; j <= Ny; ++j ) {
 		if ( j == 0 ) { // print x locations
+
 			file << ","; // pad space to get correct alignment
 			for ( int i = 0; i <= Nx; ++i ) {
+				auto & thisCell( getCell( i, j ) );
+
 				if ( i == Nx ) {
-					file << cells[i][j].x_loc << std::endl;
+					file << thisCell->x_loc << std::endl;
 				} else {
-					file << cells[i][j].x_loc << ",";
+					file << thisCell->x_loc << ",";
 				}
 			}
 		}
 
 		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j ) );
 			if ( i == 0 ) { // print y locations
-				file << cells[i][j].y_loc << ",";
+				file << thisCell->y_loc << ",";
 			}
 
 			if ( i == Nx ) {
-				file << cells[i][j].temp;
+				file << thisCell->u;
 			} else {
-				file << cells[i][j].temp << ",";
+				file << thisCell->u << ",";
 			}
 		}
 		file << std::endl;
 	}
 
 	file.close();
+
+	reportStatistics();
 }
 
-void reportStatistics(
-	std::string const solutionScheme,
-	double simTime
+std::shared_ptr< CellClass >BaseDomainClass::getCell(
+	int const i,
+	int const j
 )
+{
+	int vectorIndex = i + j * ( Nx + 1 );
+	return cellVect[ vectorIndex ];
+}
+
+void BurgersClass::reportStatistics()
 {	// Report statistics from run
 
-	double l1 = calcLNorm_exact( 1.0 );
-	double l2 = calcLNorm_exact( 2.0 );
+	// Convert Pe to string
+	std::stringstream Pe_stream;
+	Pe_stream << std::fixed << std::setprecision(2) << Pe;
+	std::string Pe_str = Pe_stream.str();
 
-	// Convert simTime to String
-	std::stringstream simTime_stream;
-	simTime_stream << std::fixed << std::setprecision(2) << simTime;
-	std::string simTime_str = simTime_stream.str();
+	// Convert Re to string
+	std::stringstream Re_stream;
+	Re_stream << std::fixed << std::setprecision(2) << Re;
+	std::string Re_str = Re_stream.str();
 
-	// Convert gamma to String
+	// Convert gamma to string
 	std::stringstream gamma_stream;
 	gamma_stream << std::fixed << std::setprecision(2) << gamma;
 	std::string gamma_str = gamma_stream.str();
 
-	std::ofstream file( solutionScheme + "-" + gamma_str + "-" + simTime_str + "-" + std::to_string( Nx ) + ".txt", std::ofstream::out );
+	// Convert simTime to string
+	std::stringstream simTime_stream;
+	simTime_stream << std::fixed << std::setprecision(2) << t_curr;
+	std::string simTime_str = simTime_stream.str();
 
-	file << "L1 Norm: " << l1 << std::endl;
-	file << "L2 Norm: " << l2 << std::endl;
+	std::ofstream file( numScheme + "-" + advDifferencingScheme + "-" + Pe_str + "-" + Re_str + "-" + gamma_str + "-" + simTime_str + ".txt", std::ofstream::out );
+
 	file << "Physical Time (s): " << simTime_str << std::endl;
-	file << "Runtime (s): " << float( clock() - t_init ) / CLOCKS_PER_SEC << std::endl;
+	file << "Runtime (s): " << float( clock() - t_start ) / CLOCKS_PER_SEC << std::endl;
 
 	file.close();
 }
 
-void explicitMethod() { // Simulate explicit method
-
-	double simTime = 0.0;
-
-	initDomain();
-	simTime = simulateExplicit();
-	reportResults( "explicit", simTime );
-	reportStatistics( "explicit", simTime );
-}
-
-void implicitMethod() { // Simulate implicit method
-
-	double simTime = 0.0;
-
-	initDomain();
-	simTime = simulateImplicit();
-	reportResults( "implicit", simTime );
-	reportStatistics( "implicit", simTime );
-}
-
-double simulateExplicit() {
-
-	double dt = gamma * std::pow( dx, 2.0 ) / alpha;
-	double t = 0.0;
-
-	for ( t = 0; t < t_final; t = t + dt )
-	{
-		fieldUpdateExplicit( dt );
-		shiftTempsForNewTimeStep();
-
-		if ( t < t1 && t + dt > t1 ) {
-			dt = t1 - t;
-			t += dt;
-			fieldUpdateExplicit( dt );
-			shiftTempsForNewTimeStep();
-			reportResults( "explicit", t );
-			reportStatistics( "explicit", t );
-		} else if ( t < t2 && t + dt > t2 ) {
-			dt = t2 - t;
-			t += dt;
-			fieldUpdateExplicit( dt );
-			shiftTempsForNewTimeStep();
-			reportResults( "explicit", t );
-			reportStatistics( "explicit", t );
-		} else if ( t < t3 && t + dt > t3 ) {
-			dt = t3 - t;
-			t += dt;
-			fieldUpdateExplicit( dt );
-			shiftTempsForNewTimeStep();
-			reportResults( "explicit", t );
-			reportStatistics( "explicit", t );
-		} else if ( t < t4 && t + dt > t4 ) {
-			dt = t4 - t;
-			t += dt;
-			fieldUpdateExplicit( dt );
-			shiftTempsForNewTimeStep();
-			reportResults( "explicit", t );
-			reportStatistics( "explicit", t );
-		}
-
-		dt = gamma * std::pow( dx, 2.0 ) / alpha;
-
-	}
-
-	return t;
-}
-
-void fieldUpdateExplicit(
-	double dt
-)
+void BurgersClass::simulate()
 {
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp = alpha * dt * ( ( cells[i+1][j].temp_prev_ts - 2 * cells[i][j].temp_prev_ts + cells[i-1][j].temp_prev_ts ) / std::pow( dx, 2.0 ) \
-											+ ( cells[i][j+1].temp_prev_ts - 2 * cells[i][j].temp_prev_ts + cells[i][j-1].temp_prev_ts ) / std::pow( dy, 2.0 ) ) + cells[i][j].temp_prev_ts;
+
+	bool iterateAgain = false;
+
+	while ( !isConverged_ts() || iterateAgain ) {
+		shiftValsForNewTimestep();
+
+		if ( t_curr < t1 && t_curr + dt > t1 ) {
+			update_u( t1 - t_curr );
+			update_v( t1 - t_curr );
+			t_curr += t1 - t_curr;
+			reportResults();
+			iterateAgain = true;
+		} else if ( t_curr < t2 && t_curr + dt > t2 ) {
+			update_u( t2 - t_curr );
+			update_v( t2 - t_curr );
+			t_curr += t2 - t_curr;
+			reportResults();
+			iterateAgain = true;
+		} else if ( t_curr < t3 && t_curr + dt > t3 ) {
+			update_u( t3 - t_curr );
+			update_v( t3 - t_curr );
+			t_curr += t3 - t_curr;
+			reportResults();
+			iterateAgain = true;
+		} else if ( t_curr < t4 && t_curr + dt > t4 ) {
+			update_u( t4 - t_curr );
+			update_v( t4 - t_curr );
+			t_curr += t4 - t_curr;
+			reportResults();
+			iterateAgain = true;
+		} else {
+			update_u( dt );
+			update_v( dt );
+			t_curr += dt;
+			iterateAgain = false;
 		}
+
 	}
+
 }
 
-bool isConverged_ts() {
+void BurgersClass::update_u( double const timeStep ) {
 
-	bool converged = true;
+	if ( numScheme == "Explicit" ) {
 
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			auto & thisCell( cells[i][j]);
-			if ( abs( thisCell.temp - thisCell.temp_prev_ts ) > errorTolerance ) {
-				converged = false;
-				return converged;
+		for ( int j = 1; j < Ny; ++j ) {
+			for ( int i = 0; i <= Nx; ++i ) {
+				// Get ref to current cell
+				auto & thisCell( getCell( i, j ) );
+
+				double advTerm;
+				// Calculate advective term
+				if ( advDifferencingScheme == "FOU" ) {
+					advTerm = thisCell->u_prev_ts * ( thisCell->u_prev_ts - thisCell->leftCell->u_prev_ts ) / dx \
+								+ thisCell->v_prev_ts * ( thisCell->u_prev_ts - thisCell->bottomCell->u_prev_ts ) / dy;
+				} else if ( advDifferencingScheme == "CD" ) {
+					advTerm = thisCell->u_prev_ts * ( thisCell->rightCell->u_prev_ts - thisCell->leftCell->u_prev_ts ) / ( 2.0 * dx ) \
+								+ thisCell->v_prev_ts * ( thisCell->u_prev_ts - thisCell->bottomCell->u_prev_ts ) / ( 2.0 * dy );
+				}
+
+				double diffusiveTerm_partialX = ( thisCell->leftCell->u_prev_ts + thisCell->rightCell->u_prev_ts - 2 * thisCell->u_prev_ts ) / std::pow( dx, 2.0 );
+				double diffusiveTerm_partialY = ( thisCell->topCell->u_prev_ts + thisCell->bottomCell->u_prev_ts - 2 * thisCell->u_prev_ts ) / std::pow( dy, 2.0 );
+
+				thisCell->u = thisCell->u_prev_ts + timeStep * ( advTerm + viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) );
+
 			}
 		}
-	}
 
-	return converged;
-}
-
-bool isConverged_iter() {
-
-	bool converged = true;
-
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			auto & thisCell( cells[i][j]);
-			if ( abs( thisCell.temp - thisCell.temp_iter ) > errorTolerance ) {
-				converged = false;
-				return converged;
-			}
+	} else if ( numScheme == "Implicit" ) {
+		while ( !isConverged_iter() ) {
+			shiftValsForNewIteration();
+			// We'll do something here
 		}
 	}
 
-	return converged;
 }
 
-void shiftTempsForNewTimeStep() {
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp_prev_ts = cells[i][j].temp;
-		}
-	}
-}
+void BurgersClass::update_v( double const timestep ) {
 
-void shiftTempsForNewIteration() {
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp_iter = cells[i][j].temp;
-		}
-	}
-}
+	if ( numScheme == "Explicit" ) {
 
-double simulateImplicit() {
-
-	double dt = ( gamma * std::pow( dx, 2.0 ) ) / alpha;
-	double t = 0.0;
-
-	for ( t = 0; t < t_final; t += dt ) {
-
-		performTimeStepImplicit( dt );
-
-		if ( t < t1 && t + dt > t1 ) {
-			dt = t1 - t;
-			t += dt;
-			performTimeStepImplicit( dt );
-			reportResults( "implicit", t );
-			reportStatistics( "implicit", t );
-		} else if ( t < t2 && t + dt > t2 ) {
-			dt = t2 - t;
-			t += dt;
-			performTimeStepImplicit( dt );
-			reportResults( "implicit", t );
-			reportStatistics( "implicit", t );
-		} else if ( t < t3 && t + dt > t3 ) {
-			dt = t3 - t;
-			t += dt;
-			performTimeStepImplicit( dt );
-			reportResults( "implicit", t );
-			reportStatistics( "implicit", t );
-		} else if ( t < t4 && t + dt > t4 ) {
-			dt = t4 - t;
-			t += dt;
-			performTimeStepImplicit( dt );
-			reportResults( "implicit", t );
-			reportStatistics( "implicit", t );
-		}
-
-		dt = gamma * std::pow( dx, 2.0 ) / alpha;
-
-	}
-
-	return t;
-}
-
-void performTimeStepImplicit(
-	double dt
-)
-{
-	bool converged = false;
-
-	while( !converged ) { // Iteration loop
-		shiftTempsForNewIteration();
-		fieldUpdateImplicit( dt );
-
-		if ( calcLNorm_iter( 1.0 ) < errorTolerance) {
-			converged = true;
+	} else if ( numScheme == "Implicit" ) {
+		while ( !isConverged_iter() ) {
+			shiftValsForNewIteration();
+			// We'll do something here
 		}
 	}
 
-	shiftTempsForNewTimeStep();
-
 }
 
-void fieldUpdateImplicit(
-	double dt
-)
-{
-	double delta = alpha * dt / dx;
-	double eta = alpha * dt / dy;
+bool BurgersClass::isConverged_ts() {
 
-	for ( int j = 1; j < Ny; ++j ) { // looping from i/j = 1 to N-1
-		for ( int i = 1; i < Nx; ++i ) {
-			cells[i][j].temp =  ( cells[i][j].temp_prev_ts + delta * ( cells[i+1][j].temp + cells[i-1][j].temp ) \
-								+ eta * ( cells[i][j+1].temp + cells[i][j-1].temp ) ) / ( 1 + ( 2 * delta ) + ( 2 * eta ) );
-		}
+	if ( calcLNorm_ts( 1.0 ) < errorTolerance ) {
+		return true;
+	} else {
+		return false;
 	}
+
 }
 
-double calcLNorm_exact(
-	double normPower
+bool BurgersClass::isConverged_iter() {
+
+	if ( calcLNorm_iter( 1.0 ) < errorTolerance ) {
+		return true;
+	} else {
+		return false;
+	}
+
+}
+
+double BurgersClass::calcLNorm_ts(
+	double const power
 )
 {
 	double sumError = 0.0;
 
 	for ( int j = 1; j < Ny; ++j ) {
-		for ( int i = 1; i < Nx; ++i ) {
-			auto & c( cells[i][j] );
-			double err = (c.temp - ( c.x_loc + c.y_loc ) );
-			sumError += std::abs( std::pow( err, normPower ) );
+		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j ) );
+			double thisCellError = ( thisCell->u - thisCell->u_prev_ts );
+			thisCellError += ( thisCell->v - thisCell->v_prev_ts );
+			sumError += std::abs( std::pow( thisCellError, power ) );
 		}
 	}
 
-	return std::pow( sumError, 1 / normPower );
+	return std::pow( sumError, 1 / power );
+
 }
 
-double calcLNorm_iter(
-	double normPower
+double BurgersClass::calcLNorm_iter(
+	double power
 )
 {
 	double sumError = 0.0;
 
 	for ( int j = 1; j < Ny; ++j ) {
-		for ( int i = 1; i < Nx; ++i ) {
-			auto & c( cells[i][j] );
-			double err = (c.temp - c.temp_iter );
-			sumError += std::abs( std::pow( err, normPower ) );
+		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j ) );
+			double thisCellError = ( thisCell->u - thisCell->u_iter );
+			thisCellError += ( thisCell->v - thisCell->v_iter );
+			sumError += std::abs( std::pow( thisCellError, power ) );
 		}
 	}
 
-	return std::pow( sumError, 1 / normPower );
+	return std::pow( sumError, 1 / power );
+
+}
+
+void BurgersClass::shiftValsForNewTimestep() {
+
+	for ( int j = 1; j < Ny; ++j ) {
+		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j ) );
+
+			thisCell->u_prev_ts = thisCell->u;
+			thisCell->v_prev_ts = thisCell->v;
+		}
+	}
+
+}
+
+void BurgersClass::shiftValsForNewIteration() {
+
+	for ( int j = 1; j < Ny; ++j ) {
+		for ( int i = 0; i <= Nx; ++i ) {
+			auto & thisCell( getCell( i, j ) );
+
+			thisCell->u_prev_iter = thisCell->u_iter;
+			thisCell->v_prev_iter = thisCell->v_iter;
+		}
+	}
+
 }
