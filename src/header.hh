@@ -14,13 +14,11 @@ public:
 
 	// u-velocity component
 	double u;
-	double u_iter;
 	double u_prev_iter;
 	double u_prev_ts;
 
 	// v-velocity component
 	double v;
-	double v_iter;
 	double v_prev_iter;
 	double v_prev_ts;
 
@@ -38,14 +36,12 @@ public:
 		y_index( 0 ),
 
 		u( 0.0 ),
-		u_iter( 0.0 ),
 		u_prev_iter( 0.0 ),
-		u_prev_ts( 10.0 ),
+		u_prev_ts( 0.0 ),
 
 		v( 0.0 ),
-		v_iter( 0.0 ),
 		v_prev_iter( 0.0 ),
-		v_prev_ts( 10.0 ),
+		v_prev_ts( 0.0 ),
 
 		leftCell( nullptr ),
 		rightCell( nullptr ),
@@ -73,11 +69,13 @@ public:
 	int Ny;
 	clock_t t_start;
 	double t_curr;
+	double t_end;
 	std::vector< std::shared_ptr< CellClass > > cellVect;
 
 	// Default constructor
 	BaseDomainClass() :
-		t_curr( 0.0 )
+		t_curr( 0.0 ),
+		t_end(  25.0 )
 	{};
 
 	// Destructor
@@ -155,6 +153,7 @@ public:
 	// Member Functions
 	void update_u( double dt );
 	void update_v( double dt );
+	void performTimestep( double dt );
 
 };
 

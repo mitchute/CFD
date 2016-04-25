@@ -25,13 +25,22 @@ double const t4 = 3.0;
 int main() { // Start of program
     /**
     Docs auto generated with DOxygen
-    This is where the program starts
+    Program starts here
     */
 
 	// Add runs here
 	// BurgersClass( Pe, Re, gamma, numScheme, advDifferencingScheme )
-	std::shared_ptr< BurgersClass > thisRun( new BurgersClass( 1.0, 40.0, 0.1, "Explicit", "FOU" ) );
-	thisRun->initAndSim();
+	std::shared_ptr< BurgersClass > run1( new BurgersClass( 1.0, 40.0, 0.1, "Explicit", "FOU" ) );
+	run1->initAndSim();
+
+	std::shared_ptr< BurgersClass > run2( new BurgersClass( 1.0, 40.0, 0.1, "Explicit", "CD" ) );
+	run2->initAndSim();
+
+	std::shared_ptr< BurgersClass > run3( new BurgersClass( 1.0, 40.0, 0.1, "Implicit", "FOU" ) );
+	run3->initAndSim();
+
+	std::shared_ptr< BurgersClass > run4( new BurgersClass( 1.0, 40.0, 0.1, "Implicit", "CD" ) );
+	run4->initAndSim();
 
 }
 
@@ -85,15 +94,15 @@ void BurgersClass::initDomain() // Initialize domain correctly for each run.
 				double initVal = u_lid;
 				// u-velocity component
 				thisCell->u = initVal;
-				thisCell->u_iter = initVal;
+				thisCell->u_prev_iter = initVal;
 				thisCell->u_prev_ts = initVal;
 				// v-velocity component
 				thisCell->v = 0.0;
-				thisCell->v_iter = 0.0;
+				thisCell->v_prev_iter = 0.0;
 				thisCell->v_prev_ts = 0.0;
 			} else { // Everywhere else initialized to 0.0
 				thisCell->u = 0.0;
-				thisCell->u_iter = 0.0; // initialized big
+				thisCell->u_prev_iter = 0.0; // initialized big
 				thisCell->u_prev_ts = 0.0;
 			}
 
@@ -103,7 +112,7 @@ void BurgersClass::initDomain() // Initialize domain correctly for each run.
 		}
 	}
 
-	// Store all cell neighbors on the cell class for future reference
+	// Store all cell neighbors on the cell instance for future reference
 	for ( int j = 1; j < Ny; ++j ) {
 		for ( int i = 0; i <= Nx; ++i ) {
 			auto & thisCell( getCell( i, j) );
@@ -230,46 +239,75 @@ void BurgersClass::simulate()
 {
 
 	bool iterateAgain = false;
+	bool converged = false;
 
-	while ( !isConverged_ts() || iterateAgain ) {
-		shiftValsForNewTimestep();
+	while ( !converged || iterateAgain ) {
 
 		if ( t_curr < t1 && t_curr + dt > t1 ) {
-			update_u( t1 - t_curr );
-			update_v( t1 - t_curr );
-			t_curr += t1 - t_curr;
+			performTimestep( t1 - t_curr );
 			reportResults();
 			iterateAgain = true;
 		} else if ( t_curr < t2 && t_curr + dt > t2 ) {
-			update_u( t2 - t_curr );
-			update_v( t2 - t_curr );
-			t_curr += t2 - t_curr;
+			performTimestep( t2 - t_curr );
 			reportResults();
 			iterateAgain = true;
 		} else if ( t_curr < t3 && t_curr + dt > t3 ) {
-			update_u( t3 - t_curr );
-			update_v( t3 - t_curr );
-			t_curr += t3 - t_curr;
+			performTimestep( t3 - t_curr );
 			reportResults();
 			iterateAgain = true;
 		} else if ( t_curr < t4 && t_curr + dt > t4 ) {
-			update_u( t4 - t_curr );
-			update_v( t4 - t_curr );
-			t_curr += t4 - t_curr;
+			performTimestep( t4 - t_curr );
 			reportResults();
 			iterateAgain = true;
 		} else {
-			update_u( dt );
-			update_v( dt );
-			t_curr += dt;
+			performTimestep( dt );
 			iterateAgain = false;
 		}
+
+		// Check convergence
+		converged = ( t_end < t_curr );
 
 	}
 
 }
 
-void BurgersClass::update_u( double const timeStep ) {
+void BurgersClass::performTimestep( double const timestep ) {
+
+	shiftValsForNewTimestep();
+
+	if ( numScheme == "Explicit" ) {
+
+		update_u( timestep );
+		update_v( timestep );
+
+	} else if ( numScheme == "Implicit" ) {
+
+		bool converged = false;
+
+		int iters = 0;
+
+		while( !converged ) {
+
+			shiftValsForNewIteration();
+
+			update_u( timestep );
+			update_v( timestep );
+
+			converged = isConverged_iter();
+
+			++iters;
+
+		}
+
+		std::cout << iters << '\n';
+
+	}
+
+	t_curr += timestep;
+
+}
+
+void BurgersClass::update_u( double const timestep ) {
 
 	if ( numScheme == "Explicit" ) {
 
@@ -278,28 +316,51 @@ void BurgersClass::update_u( double const timeStep ) {
 				// Get ref to current cell
 				auto & thisCell( getCell( i, j ) );
 
-				double advTerm;
+				double advTerm = 0.0;
 				// Calculate advective term
 				if ( advDifferencingScheme == "FOU" ) {
-					advTerm = thisCell->u_prev_ts * ( thisCell->u_prev_ts - thisCell->leftCell->u_prev_ts ) / dx \
+					advTerm = thisCell->u_prev_ts * ( thisCell->u_prev_ts - thisCell->leftCell->u_prev_ts ) / dx; \
 								+ thisCell->v_prev_ts * ( thisCell->u_prev_ts - thisCell->bottomCell->u_prev_ts ) / dy;
 				} else if ( advDifferencingScheme == "CD" ) {
 					advTerm = thisCell->u_prev_ts * ( thisCell->rightCell->u_prev_ts - thisCell->leftCell->u_prev_ts ) / ( 2.0 * dx ) \
-								+ thisCell->v_prev_ts * ( thisCell->u_prev_ts - thisCell->bottomCell->u_prev_ts ) / ( 2.0 * dy );
+								+ thisCell->v_prev_ts * ( thisCell->topCell->u_prev_ts - thisCell->bottomCell->u_prev_ts ) / ( 2.0 * dy );
 				}
 
+				// Calculate diffusive term
 				double diffusiveTerm_partialX = ( thisCell->leftCell->u_prev_ts + thisCell->rightCell->u_prev_ts - 2 * thisCell->u_prev_ts ) / std::pow( dx, 2.0 );
 				double diffusiveTerm_partialY = ( thisCell->topCell->u_prev_ts + thisCell->bottomCell->u_prev_ts - 2 * thisCell->u_prev_ts ) / std::pow( dy, 2.0 );
 
-				thisCell->u = thisCell->u_prev_ts + timeStep * ( advTerm + viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) );
+				thisCell->u = thisCell->u_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
 
 			}
 		}
 
 	} else if ( numScheme == "Implicit" ) {
-		while ( !isConverged_iter() ) {
-			shiftValsForNewIteration();
-			// We'll do something here
+
+		bool converged = false;
+
+		for ( int j = 1; j < Ny; ++j ) {
+			for ( int i = 0; i <= Nx; ++i ) {
+				// Get ref to current cell
+				auto & thisCell( getCell( i, j ) );
+
+				double advTerm = 0.0;
+				// Calculate advective term
+				if ( advDifferencingScheme == "FOU" ) {
+					advTerm = thisCell->u * ( thisCell->u - thisCell->leftCell->u ) / dx \
+								+ thisCell->v * ( thisCell->u - thisCell->bottomCell->u ) / dy;
+				} else if ( advDifferencingScheme == "CD" ) {
+					advTerm = thisCell->u * ( thisCell->rightCell->u - thisCell->leftCell->u ) / ( 2.0 * dx ) \
+								+ thisCell->v * ( thisCell->topCell->u - thisCell->bottomCell->u ) / ( 2.0 * dy );
+				}
+
+				// Calculate diffusive term
+				double diffusiveTerm_partialX = ( thisCell->leftCell->u + thisCell->rightCell->u - 2 * thisCell->u ) / std::pow( dx, 2.0 );
+				double diffusiveTerm_partialY = ( thisCell->topCell->u + thisCell->bottomCell->u - 2 * thisCell->u ) / std::pow( dy, 2.0 );
+
+				thisCell->u = thisCell->u_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
+
+			}
 		}
 	}
 
@@ -309,10 +370,56 @@ void BurgersClass::update_v( double const timestep ) {
 
 	if ( numScheme == "Explicit" ) {
 
+		for ( int j = 1; j < Ny; ++j ) {
+			for ( int i = 0; i <= Nx; ++i ) {
+				// Get ref to current cell
+				auto & thisCell( getCell( i, j ) );
+
+				double advTerm = 0.0;
+				// Calculate advective term
+				if ( advDifferencingScheme == "FOU" ) {
+					advTerm = thisCell->u_prev_ts * ( thisCell->v_prev_ts - thisCell->leftCell->v_prev_ts ) / dx \
+								+ thisCell->v_prev_ts * ( thisCell->v_prev_ts - thisCell->bottomCell->v_prev_ts ) / dy;
+				} else if ( advDifferencingScheme == "CD" ) {
+					advTerm = thisCell->u_prev_ts * ( thisCell->rightCell->v_prev_ts - thisCell->leftCell->v_prev_ts ) / ( 2.0 * dx ); \
+								+ thisCell->v_prev_ts * ( thisCell->topCell->v_prev_ts - thisCell->bottomCell->v_prev_ts ) / ( 2.0 * dy );
+				}
+
+				// Calculate diffusive term
+				double diffusiveTerm_partialX = ( thisCell->leftCell->v_prev_ts + thisCell->rightCell->v_prev_ts - 2 * thisCell->v_prev_ts ) / std::pow( dx, 2.0 );
+				double diffusiveTerm_partialY = ( thisCell->topCell->v_prev_ts + thisCell->bottomCell->v_prev_ts - 2 * thisCell->v_prev_ts ) / std::pow( dy, 2.0 );
+
+				thisCell->v = thisCell->v_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
+
+			}
+		}
+
 	} else if ( numScheme == "Implicit" ) {
-		while ( !isConverged_iter() ) {
-			shiftValsForNewIteration();
-			// We'll do something here
+
+		bool converged = false;
+
+		for ( int j = 1; j < Ny; ++j ) {
+			for ( int i = 0; i <= Nx; ++i ) {
+				// Get ref to current cell
+				auto & thisCell( getCell( i, j ) );
+
+				double advTerm = 0.0;
+				// Calculate advective term
+				if ( advDifferencingScheme == "FOU" ) {
+					advTerm = thisCell->u * ( thisCell->v - thisCell->leftCell->v ) / dx \
+								+ thisCell->v * ( thisCell->v - thisCell->bottomCell->v ) / dy;
+				} else if ( advDifferencingScheme == "CD" ) {
+					advTerm = thisCell->u * ( thisCell->rightCell->v - thisCell->leftCell->v ) / ( 2.0 * dx ) \
+								+ thisCell->v * ( thisCell->topCell->v - thisCell->bottomCell->v ) / ( 2.0 * dy );
+				}
+
+				// Calculate diffusive term
+				double diffusiveTerm_partialX = ( thisCell->leftCell->v + thisCell->rightCell->v - 2 * thisCell->v ) / std::pow( dx, 2.0 );
+				double diffusiveTerm_partialY = ( thisCell->topCell->v + thisCell->bottomCell->v - 2 * thisCell->v ) / std::pow( dy, 2.0 );
+
+				thisCell->v = thisCell->u_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
+
+			}
 		}
 	}
 
@@ -347,9 +454,9 @@ double BurgersClass::calcLNorm_ts(
 	for ( int j = 1; j < Ny; ++j ) {
 		for ( int i = 0; i <= Nx; ++i ) {
 			auto & thisCell( getCell( i, j ) );
-			double thisCellError = ( thisCell->u - thisCell->u_prev_ts );
-			thisCellError += ( thisCell->v - thisCell->v_prev_ts );
-			sumError += std::abs( std::pow( thisCellError, power ) );
+			double thisCellError = std::abs( thisCell->u - thisCell->u_prev_ts );
+			thisCellError += std::abs( thisCell->v - thisCell->v_prev_ts );
+			sumError += std::pow( thisCellError, power );
 		}
 	}
 
@@ -366,9 +473,9 @@ double BurgersClass::calcLNorm_iter(
 	for ( int j = 1; j < Ny; ++j ) {
 		for ( int i = 0; i <= Nx; ++i ) {
 			auto & thisCell( getCell( i, j ) );
-			double thisCellError = ( thisCell->u - thisCell->u_iter );
-			thisCellError += ( thisCell->v - thisCell->v_iter );
-			sumError += std::abs( std::pow( thisCellError, power ) );
+			double thisCellError = std::abs( thisCell->u - thisCell->u_prev_iter );
+			thisCellError += std::abs( thisCell->v - thisCell->v_prev_iter );
+			sumError += std::pow( thisCellError, power );
 		}
 	}
 
@@ -395,8 +502,8 @@ void BurgersClass::shiftValsForNewIteration() {
 		for ( int i = 0; i <= Nx; ++i ) {
 			auto & thisCell( getCell( i, j ) );
 
-			thisCell->u_prev_iter = thisCell->u_iter;
-			thisCell->v_prev_iter = thisCell->v_iter;
+			thisCell->u_prev_iter = thisCell->u;
+			thisCell->v_prev_iter = thisCell->v;
 		}
 	}
 
