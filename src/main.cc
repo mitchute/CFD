@@ -42,6 +42,24 @@ int main() { // Start of program
 	std::shared_ptr< BurgersClass > run4( new BurgersClass( 1.0, 40.0, 0.1, "Implicit", "CD" ) );
 	run4->initAndSim();
 
+	std::shared_ptr< BurgersClass > run5( new BurgersClass( 5.0, 40.0, 0.1, "Explicit", "FOU" ) );
+	run5->initAndSim();
+
+	std::shared_ptr< BurgersClass > run6( new BurgersClass( 5.0, 40.0, 0.1, "Explicit", "CD" ) );
+	run6->initAndSim();
+
+	std::shared_ptr< BurgersClass > run7( new BurgersClass( 5.0, 40.0, 0.1, "Implicit", "FOU" ) );
+	run7->initAndSim();
+
+	std::shared_ptr< BurgersClass > run8( new BurgersClass( 5.0, 40.0, 0.1, "Implicit", "CD" ) );
+	run8->initAndSim();
+
+	std::shared_ptr< BurgersClass > run9( new BurgersClass( 5.0, 40.0, 1.0, "Implicit", "FOU" ) );
+	run9->initAndSim();
+
+	std::shared_ptr< BurgersClass > run10( new BurgersClass( 5.0, 200.0, 1.0, "Implicit", "FOU" ) );
+	run10->initAndSim();
+
 }
 
 void BurgersClass::initAndSim()
@@ -61,14 +79,14 @@ void BurgersClass::initDomain() // Initialize domain correctly for each run.
 	H = 1.0;
 
 	// Set mesh spacing
-	dx = Pe * L / Re;
+	dx = Pe * H / Re;
 	dy = dx;
 
 	// Set timestep
-	dt = ( gamma * std::pow( Pe, 2.0 ) * L ) / ( u_lid * Re );
+	dt = ( gamma * std::pow( Pe, 2.0 ) * H ) / ( u_lid * Re );
 
 	// Set viscosity
-	viscosity = u_lid * L / Re;
+	viscosity = u_lid * H / Re;
 
 	// Calculate number of cells
 	Nx = ceil( L / dx );
@@ -259,6 +277,10 @@ void BurgersClass::simulate()
 			performTimestep( t4 - t_curr );
 			reportResults();
 			iterateAgain = true;
+		} else if ( t_curr == t1  || t_curr == t2 || t_curr == t3 || t_curr == t4 ) {
+			performTimestep( dt );
+			iterateAgain = false;
+			reportResults();
 		} else {
 			performTimestep( dt );
 			iterateAgain = false;
@@ -284,8 +306,6 @@ void BurgersClass::performTimestep( double const timestep ) {
 
 		bool converged = false;
 
-		int iters = 0;
-
 		while( !converged ) {
 
 			shiftValsForNewIteration();
@@ -295,11 +315,7 @@ void BurgersClass::performTimestep( double const timestep ) {
 
 			converged = isConverged_iter();
 
-			++iters;
-
 		}
-
-		std::cout << iters << '\n';
 
 	}
 
@@ -344,21 +360,25 @@ void BurgersClass::update_u( double const timestep ) {
 				// Get ref to current cell
 				auto & thisCell( getCell( i, j ) );
 
-				double advTerm = 0.0;
-				// Calculate advective term
+				double U = timestep * thisCell->u / dx;
+				double V = timestep * thisCell->v / dy;
+				double gamma_x = timestep * viscosity / std::pow( dx, 2.0 );
+				double gamma_y = timestep * viscosity / std::pow( dx, 2.0 );
+
+				double numerator = 0.0;
+				double denominator = 0.0;
+
 				if ( advDifferencingScheme == "FOU" ) {
-					advTerm = thisCell->u * ( thisCell->u - thisCell->leftCell->u ) / dx \
-								+ thisCell->v * ( thisCell->u - thisCell->bottomCell->u ) / dy;
+					numerator = thisCell->u_prev_ts + U * thisCell->leftCell->u + V * thisCell->bottomCell->u \
+								+ gamma_x * ( thisCell->rightCell->u + thisCell->leftCell->u ) + gamma_y * ( thisCell->topCell->u + thisCell->bottomCell->u );
+					denominator = 1 + U + V + 2 * gamma_x + 2 * gamma_y;
 				} else if ( advDifferencingScheme == "CD" ) {
-					advTerm = thisCell->u * ( thisCell->rightCell->u - thisCell->leftCell->u ) / ( 2.0 * dx ) \
-								+ thisCell->v * ( thisCell->topCell->u - thisCell->bottomCell->u ) / ( 2.0 * dy );
+					numerator = thisCell->u_prev_ts - U * ( thisCell->rightCell->u - thisCell->leftCell->u ) - V * ( thisCell->topCell->u - thisCell->bottomCell->u ) \
+								+ gamma_x * ( thisCell->rightCell->u + thisCell->leftCell->u ) + gamma_y * ( thisCell->topCell->u + thisCell->bottomCell->u );
+					denominator = 1 + 2 * gamma_x + 2 * gamma_y;
 				}
 
-				// Calculate diffusive term
-				double diffusiveTerm_partialX = ( thisCell->leftCell->u + thisCell->rightCell->u - 2 * thisCell->u ) / std::pow( dx, 2.0 );
-				double diffusiveTerm_partialY = ( thisCell->topCell->u + thisCell->bottomCell->u - 2 * thisCell->u ) / std::pow( dy, 2.0 );
-
-				thisCell->u = thisCell->u_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
+				thisCell->u = numerator / denominator;
 
 			}
 		}
@@ -403,21 +423,25 @@ void BurgersClass::update_v( double const timestep ) {
 				// Get ref to current cell
 				auto & thisCell( getCell( i, j ) );
 
-				double advTerm = 0.0;
-				// Calculate advective term
+				double U = timestep * thisCell->u / dx;
+				double V = timestep * thisCell->v / dy;
+				double gamma_x = timestep * viscosity / std::pow( dx, 2.0 );
+				double gamma_y = timestep * viscosity / std::pow( dx, 2.0 );
+
+				double numerator = 0.0;
+				double denominator = 0.0;
+
 				if ( advDifferencingScheme == "FOU" ) {
-					advTerm = thisCell->u * ( thisCell->v - thisCell->leftCell->v ) / dx \
-								+ thisCell->v * ( thisCell->v - thisCell->bottomCell->v ) / dy;
+					numerator = thisCell->v_prev_ts + U * thisCell->leftCell->v + V * thisCell->bottomCell->v \
+								+ gamma_x * ( thisCell->rightCell->v + thisCell->leftCell->v ) + gamma_y * ( thisCell->topCell->v + thisCell->bottomCell->v );
+					denominator = 1 + U + V + 2 * gamma_x + 2 * gamma_y;
 				} else if ( advDifferencingScheme == "CD" ) {
-					advTerm = thisCell->u * ( thisCell->rightCell->v - thisCell->leftCell->v ) / ( 2.0 * dx ) \
-								+ thisCell->v * ( thisCell->topCell->v - thisCell->bottomCell->v ) / ( 2.0 * dy );
+					numerator = thisCell->v_prev_ts - U * ( thisCell->rightCell->v - thisCell->leftCell->v ) - V * ( thisCell->topCell->v - thisCell->bottomCell->v ) \
+								+ gamma_x * ( thisCell->rightCell->v + thisCell->leftCell->v ) + gamma_y * ( thisCell->topCell->v + thisCell->bottomCell->v );
+					denominator = 1 + 2 * gamma_x + 2 * gamma_y;
 				}
 
-				// Calculate diffusive term
-				double diffusiveTerm_partialX = ( thisCell->leftCell->v + thisCell->rightCell->v - 2 * thisCell->v ) / std::pow( dx, 2.0 );
-				double diffusiveTerm_partialY = ( thisCell->topCell->v + thisCell->bottomCell->v - 2 * thisCell->v ) / std::pow( dy, 2.0 );
-
-				thisCell->v = thisCell->u_prev_ts + timestep * ( viscosity * ( diffusiveTerm_partialX + diffusiveTerm_partialY ) - advTerm );
+				thisCell->v = numerator / denominator;
 
 			}
 		}
