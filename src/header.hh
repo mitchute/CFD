@@ -22,6 +22,17 @@ public:
 	double v_prev_iter;
 	double v_prev_ts;
 
+	// Pressure
+	double p;
+	double p_prev_iter;
+	double p_prev_ts;
+
+	// H terms
+	double Hx_E;
+	double Hx_W;
+	double Hy_N;
+	double Hy_S;
+
 	// Cell neighbors
 	std::shared_ptr< CellClass > leftCell;
 	std::shared_ptr< CellClass > rightCell;
@@ -43,6 +54,10 @@ public:
 		v_prev_iter( 0.0 ),
 		v_prev_ts( 0.0 ),
 
+		p( 0.0 ),
+		p_prev_iter( 0.0 ),
+		p_prev_ts( 0.0 ),
+
 		leftCell( nullptr ),
 		rightCell( nullptr ),
 		bottomCell( nullptr ),
@@ -60,6 +75,10 @@ class BaseDomainClass
 public:
 
 	// BaseDomain Members
+	double u_max;
+	double p_inlet;
+	double dp_total;
+	double p_outlet;
 	double L;
 	double H;
 	double dx;
@@ -75,7 +94,7 @@ public:
 	// Default constructor
 	BaseDomainClass() :
 		t_curr( 0.0 ),
-		t_end(  25.0 )
+		t_end( 60.0 )
 	{};
 
 	// Destructor
@@ -99,43 +118,41 @@ public:
 
 };
 
-class BurgersClass : public BaseDomainClass
+class ChannelFlowClass : public BaseDomainClass
 {
 public:
 	double Pe;
 	double Re;
 	double gamma;
 	double viscosity;
-	std::string numScheme; // Explicit or implicit
-	std::string advDifferencingScheme; // FOU or CD
+	double density;
 
 	// Default constructor
-	BurgersClass() :
-		viscosity( 0.0 ),
+	ChannelFlowClass() :
 		Pe( 0.0 ),
 		Re( 0.0 ),
 		gamma( 0.0 ),
-		numScheme( "default" ),
-		advDifferencingScheme( "NYBD" )
+		viscosity( 0.0 ),
+		density( 0.0 )
 	{}
 
 	// Member constructor
-	BurgersClass(
+	ChannelFlowClass(
 		double const Pe_,
 		double const Re_,
 		double const gamma_,
-		std::string const numScheme_,
-		std::string const advDifferencingScheme_
+		double const viscosity_,
+		double const density_
 	) :
 		Pe( Pe_ ),
 		Re( Re_ ),
 		gamma( gamma_ ),
-		numScheme( numScheme_ ),
-		advDifferencingScheme( advDifferencingScheme_ )
+		viscosity( viscosity_ ),
+		density( density_ )
 	{}
 
 	// Destructor
-	~BurgersClass(){};
+	~ChannelFlowClass(){};
 
 	// Virtual functions
 	void initAndSim();
@@ -151,10 +168,13 @@ public:
 	void shiftValsForNewIteration();
 
 	// Member Functions
+	void updatePressureField();
 	void update_u( double dt );
 	void update_v( double dt );
 	void performTimestep( double dt );
-
+	void reportPressureField();
+	bool isConvergedPressure();
+	void shiftPressForNewIter();
 };
 
 #endif
